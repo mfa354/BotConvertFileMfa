@@ -9,7 +9,12 @@ import time
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-BOT_TOKEN = "7758251892:AAEePbQRRFkN_1Us--S-VlIJ5eTSd_zr2ik"
+BOT_TOKEN = os.getenv('BOT_TOKEN')
+
+#Validate token exists
+if not BOT_TOKEN:
+    raise ValueError("BOT_TOKEN environment variable is required!")
+
 
 # Menu configurations
 MENUS = {
