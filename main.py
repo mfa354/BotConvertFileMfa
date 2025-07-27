@@ -113,52 +113,20 @@ def create_txt_from_vcf(contacts):
     
     return '\n'.join(phone_numbers)
 
-def normalize_phone_list_format(phone_list):
-    """Normalize all phones in list to have consistent format"""
-    if not phone_list:
-        return phone_list
-    
-    # Check if any phone has + prefix
-    has_plus = any(phone.startswith('+') for phone in phone_list)
-    
-    normalized_phones = []
-    for phone in phone_list:
-        if has_plus:
-            # If any phone has +, make sure all have +
-            if not phone.startswith('+'):
-                if phone.startswith('0'):
-                    phone = '+62' + phone[1:]
-                elif phone.startswith('62'):
-                    phone = '+' + phone
-                else:
-                    phone = '+62' + phone if len(phone) >= 10 else '+' + phone
-        else:
-            # If no phone has +, remove + from all
-            if phone.startswith('+'):
-                if phone.startswith('+62'):
-                    phone = '0' + phone[3:]
-                else:
-                    phone = phone[1:]
-        normalized_phones.append(phone)
-    
-    return normalized_phones
-
 def merge_txt_files(txt_files_data):
-    """Merge multiple TXT files and remove duplicates with consistent format"""
+    """Merge multiple TXT files and remove duplicates WITHOUT modifying phone numbers"""
     all_phones = []
     phone_set = set()
     
-    # Collect all phones first
+    # Collect all phones exactly as they are, only remove exact duplicates
     for file_data in txt_files_data:
         for phone in file_data['phone_numbers']:
-            if phone not in phone_set:
-                all_phones.append(phone)
-                phone_set.add(phone)
+            phone_clean = phone.strip()  # Only remove whitespace
+            if phone_clean not in phone_set:
+                all_phones.append(phone_clean)
+                phone_set.add(phone_clean)
     
-    # Normalize format consistency
-    normalized_phones = normalize_phone_list_format(all_phones)
-    
-    return normalized_phones
+    return all_phones
 
 def merge_vcf_files(vcf_files_data):
     """Merge multiple VCF files and remove duplicates"""
@@ -546,13 +514,13 @@ async def show_merge_txt_filename_request(context):
     total_files = len(merge_txt_files_data)
     merged_phones = merge_txt_files(merge_txt_files_data)
     total_phones = len(merged_phones)
-    unique_phones = len(set(merged_phones))
+    original_total = sum(len(f['phone_numbers']) for f in merge_txt_files_data)
     
     context.user_data['merged_phones'] = merged_phones
     context.user_data['waiting_for_merge_txt_filename'] = True
     
     merge_text = f"🔗 *MERGE TXT - Siap Digabung*\n\n📋 *Detail:*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-    merge_text += f"📁 **{total_files} file TXT** akan digabung\n📊 **{total_phones} nomor** total\n📞 **{unique_phones} nomor** unik (duplikat dihapus)\n"
+    merge_text += f"📁 **{total_files} file TXT** akan digabung\n📊 **{original_total} nomor** total\n📞 **{total_phones} nomor** unik (duplikat dihapus)\n"
     merge_text += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n📝 **Masukkan nama file TXT output:**"
     
     if 'upload_status_message' in context.user_data:
@@ -683,9 +651,6 @@ async def process_v2_batch(query, context):
     all_phones = []
     for file_data in txt_files_data:
         all_phones.extend(file_data['phone_numbers'])
-    
-    # Normalize format consistency for merged phones
-    all_phones = normalize_phone_list_format(all_phones)
     
     context.user_data['merged_phones'] = all_phones
     context.user_data['waiting_for_v2_format'] = True
@@ -970,18 +935,18 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             merged_txt_content = create_txt_from_vcf(all_contacts)
             
-            if merged_vcf_content:
-                vcf_file = io.BytesIO(merged_vcf_content.encode('utf-8'))
-                vcf_file.name = filename
-                await update.message.reply_document(document=vcf_file, filename=filename)
+            if merged_txt_content:
+                txt_file = io.BytesIO(merged_txt_content.encode('utf-8'))
+                txt_file.name = filename
+                await update.message.reply_document(document=txt_file, filename=filename)
             
             try:
                 await processing_msg.delete()
             except:
                 pass
             
-            summary = f"🎉 *MERGE VCF SELESAI!*\n\n📊 *RINGKASAN:*\n━━━━━━━━━━━━━━━━━━━\n"
-            summary += f"📁 *File: {filename}*\n📞 *Total: {len(merged_contacts)} kontak*\n"
+            summary = f"🎉 *MERGE VCF TO TXT SELESAI!*\n\n📊 *RINGKASAN:*\n━━━━━━━━━━━━━━━━━━━\n"
+            summary += f"📁 *File: {filename}*\n📞 *Total: {len(all_contacts)} kontak*\n"
             summary += f"━━━━━━━━━━━━━━━━━━━\n💡 Gunakan /start untuk konversi baru."
             
             await update.message.reply_text(summary, parse_mode='Markdown')
@@ -1008,14 +973,12 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             for file_data in txt_files_data:
                 filename = file_data['filename'].rsplit('.txt', 1)[0] + '.vcf'
-                # Normalize phone format consistency before creating VCF
-                normalized_phones = normalize_phone_list_format(file_data['phone_numbers'])
-                vcf_content = create_vcf_from_phones(normalized_phones, contact_name)
+                vcf_content = create_vcf_from_phones(file_data['phone_numbers'], contact_name)
                 
                 if vcf_content:
                     await send_vcf_file(update, filename, vcf_content)
                     successful_files += 1
-                    total_processed += len(normalized_phones)
+                    total_processed += len(file_data['phone_numbers'])
                     await asyncio.sleep(0.3)
             
             try:
@@ -1036,7 +999,7 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Terjadi kesalahan saat memproses file.")
             context.user_data.clear()
     
-# CV V1 - Custom filename input (STEP 1)
+    # CV V1 - Custom filename input (STEP 1)
     elif context.user_data.get('waiting_for_custom_filename'):
         base_filename = user_input.strip()
         
@@ -1113,7 +1076,7 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Terjadi kesalahan saat menggabung file TXT.")
             context.user_data.clear()
     
- # MERGE VCF filename input
+    # MERGE VCF filename input
     elif context.user_data.get('waiting_for_merge_vcf_filename'):
         filename = user_input.strip()
         if not filename:
@@ -1169,14 +1132,12 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for i, file_data in enumerate(txt_files_data):
                 if i < len(custom_filenames):
                     filename = custom_filenames[i]
-                    # Normalize phone format consistency before creating VCF
-                    normalized_phones = normalize_phone_list_format(file_data['phone_numbers'])
-                    vcf_content = create_vcf_from_phones(normalized_phones, contact_name)
+                    vcf_content = create_vcf_from_phones(file_data['phone_numbers'], contact_name)
                     
                     if vcf_content:
                         await send_vcf_file(update, filename, vcf_content)
                         successful_files += 1
-                        total_processed += len(normalized_phones)
+                        total_processed += len(file_data['phone_numbers'])
                         await asyncio.sleep(0.3)
             
             try:
@@ -1218,4 +1179,3 @@ def main():
 
 if __name__ == '__main__':
     main()
- 
