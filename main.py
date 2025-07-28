@@ -114,9 +114,74 @@ def create_txt_from_vcf(contacts):
     return '\n'.join(phone_numbers)
 
 def normalize_phone_list_format(phone_list):
-    """Normalize all phones in list to have consistent format"""
+    """Normalize phone list while preserving original format preferences"""
     if not phone_list:
         return phone_list
+    
+    # Don't force any specific country format
+    # Just clean and deduplicate while preserving original style
+    seen_signatures = set()
+    normalized_phones = []
+    
+    for phone in phone_list:
+        normalized_phone = normalize_phone_universal(phone)
+        if not normalized_phone:
+            continue
+        
+        signatures = create_phone_signature(normalized_phone)
+        if not signatures:
+            continue
+        
+        # Check for duplicates
+        is_duplicate = any(sig in seen_signatures for sig in signatures)
+        
+        if not is_duplicate:
+            for sig in signatures:
+                seen_signatures.add(sig)
+            normalized_phones.append(normalized_phone)
+    
+    return normalized_phones
+
+def normalize_phone_universal(phone):
+    """Universal phone normalization - preserve original format but clean"""
+    phone = phone.strip()
+    
+    # Remove any non-digit characters except +
+    cleaned = ''.join(c for c in phone if c.isdigit() or c == '+')
+    
+    # Basic validation - must have at least 8 digits
+    digit_count = sum(1 for c in cleaned if c.isdigit())
+    if digit_count < 8:
+        return None
+    
+    return cleaned
+
+def create_phone_signature(phone):
+    """Create a signature for phone number to detect duplicates regardless of format"""
+    if not phone:
+        return None
+    
+    # Remove all non-digits to create signature
+    digits_only = ''.join(c for c in phone if c.isdigit())
+    
+    # Handle common patterns that represent the same number
+    signatures = [digits_only]
+    
+    # If starts with country code patterns, create alternative signatures
+    if len(digits_only) >= 10:
+        # Try removing common prefixes that might be the same number
+        if digits_only.startswith('62') and len(digits_only) >= 11:
+            # 62xxx vs 0xxx (Indonesian)
+            signatures.append('0' + digits_only[2:])
+        elif digits_only.startswith('0') and len(digits_only) >= 10:
+            # 0xxx vs 62xxx (Indonesian) 
+            signatures.append('62' + digits_only[1:])
+        elif digits_only.startswith('60') and len(digits_only) >= 10:
+            # 60xxx might be 0xxx with different formatting
+            signatures.append('0' + digits_only[2:])
+            signatures.append('62' + digits_only[2:])
+    
+    return signatures
     
     # Check if any phone has + prefix
     has_plus = any(phone.startswith('+') for phone in phone_list)
@@ -144,9 +209,32 @@ def normalize_phone_list_format(phone_list):
     return normalized_phones
 
 def merge_txt_files(txt_files_data):
-    """Merge multiple TXT files and remove duplicates with consistent format"""
-    all_phones = []
-    phone_set = set()
+    """Merge multiple TXT files and remove duplicates universally"""
+    seen_signatures = set()
+    merged_phones = []
+    
+    for file_data in txt_files_data:
+        for phone in file_data['phone_numbers']:
+            # Normalize the phone number
+            normalized_phone = normalize_phone_universal(phone)
+            if not normalized_phone:
+                continue  # Skip invalid phones
+            
+            # Create signatures to detect duplicates
+            signatures = create_phone_signature(normalized_phone)
+            if not signatures:
+                continue
+            
+            # Check if any signature already exists
+            is_duplicate = any(sig in seen_signatures for sig in signatures)
+            
+            if not is_duplicate:
+                # Add all signatures to seen set
+                for sig in signatures:
+                    seen_signatures.add(sig)
+                merged_phones.append(normalized_phone)
+    
+    return merged_phones
     
     # Collect all phones first
     for file_data in txt_files_data:
